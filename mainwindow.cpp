@@ -33,6 +33,17 @@ MainWindow::MainWindow(QWidget *parent)
     ui->setupUi(this);
     m_memory = (uint8_t*)malloc(MEM_SIZE);
     memset(m_memory, 0, MEM_SIZE);
+
+    m_genRegs.insert("AX", &ax);
+    m_genRegs.insert("BX", &bx);
+    m_genRegs.insert("CX", &cx);
+    m_genRegs.insert("DX", &dx);
+
+    m_indRegs.insert("DI", &di);
+    m_indRegs.insert("SI", &si);
+
+    m_segRegs.insert("DS", &ds);
+    m_segRegs.insert("ES", &es);
 }
 
 MainWindow::~MainWindow()
@@ -72,8 +83,43 @@ void MainWindow::updateRegs() {
 
 }
 
-void MainWindow::mov_op(QString params) {
+void MainWindow::err_op(QString msg) {
+    ui->teLog->appendPlainText("Программа завершилась из-за ошибки:");
+    ui->teLog->appendPlainText(msg);
+    m_curExec = m_codeLines.size();
+}
 
+void MainWindow::mov_op(QString params) {
+    QString param1 = params;
+    param1.truncate(param1.indexOf(','));
+    QString param2 = params.right(params.length() - param1.length() - 1);
+
+    if (m_genRegs.find(param1) != m_genRegs.cend()) {
+        auto reg_to = m_genRegs.find(param1);
+        if (m_genRegs.find(param2) != m_genRegs.cend()) {
+            auto reg_from = m_genRegs.find(param2);
+            *(*reg_to) = *(*reg_from);
+        } else if (m_segRegs.find(param2) != m_segRegs.cend()) {
+            auto reg_from = m_segRegs.find(param2);
+            *(*reg_to) = *(*reg_from);
+        } else if (m_indRegs.find(param2) != m_indRegs.cend()) {
+            auto reg_from = m_indRegs.find(param2);
+            *(*reg_to) = *(*reg_from);
+        } else if (param2.indexOf('[') != -1) {
+            param2 = param2.right(param2.length() - 1);
+            param2 = param2.left(param2.length() - 1);
+            uint32_t mem_addr = param2.toUInt();
+            if (mem_addr >= MEM_SIZE - 1) {
+                err_op("Address too big");
+                return;
+            }
+            *(*reg_to)  = m_memory[mem_addr] << 8;
+            *(*reg_to) &= m_memory[mem_addr + 1];
+        } else {
+            uint16_t x = param2.toUInt(nullptr, 16);
+            *(*reg_to) = x;
+        }
+    }
 }
 
 void MainWindow::execOP(QString op_str) {
@@ -81,9 +127,9 @@ void MainWindow::execOP(QString op_str) {
     op.truncate(op.indexOf(' '));
     QString params = op_str.right(op_str.length() - op.length() - 1) + ' ';
 
-    if (op == "mov")
+    if (op == "MOV")
         mov_op(params);
-    else if (op == "int") {
+    else if (op == "INT") {
         m_curExec = m_codeLines.size();
     } else {
         ui->teLog->appendPlainText("ОШИБКА! Нераспознання команда: \"" + op_str + "\"");
@@ -100,6 +146,49 @@ bool isComment(QString s) {
             return false;
     }
     return true;
+}
+
+void capitalize(QString& str) {
+    QString small = "abcdefghijklmnopqrstuvwxyz";
+    QString big   = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    QString nums  = "0123456789";
+    bool num_started = false;
+    for (auto& i : str) {
+        if ((small.indexOf(i) != -1) && !num_started)
+            i = big.at(small.indexOf(i));
+        if (nums.indexOf(i) != -1)
+            num_started = true;
+        else
+            num_started = false;
+    }
+}
+
+void clean_spaces(QString& str) {
+    bool last_space = false;
+    bool last_comma = false;
+    for (int i = 0; i < str.length();) {
+        if (str.at(i) == ' ') {
+            if (last_space || last_comma) {
+                str.remove(i, 1);
+                continue;
+            }
+            else
+                last_space = true;
+        } else
+            last_space = false;
+
+        if (str.at(i) == ',')
+            last_comma = true;
+        else
+            last_comma = false;
+
+        ++i;
+    }
+}
+
+void sanitize_str(QString& str) {
+    capitalize(str);
+    clean_spaces(str);
 }
 
 void MainWindow::on_pbLoad_clicked()
@@ -154,7 +243,8 @@ void MainWindow::on_pbLoad_clicked()
     if (!org100)
         ui->teLog->appendPlainText("Внимание! Не установлен отступ в 0x100 для COM-формата!");
 
-    for (auto s : m_codeLines) {
+    for (auto& s : m_codeLines) {
+        sanitize_str(s);
         if (s.indexOf(';') != -1)
             s = s.left(s.indexOf(';'));
     }
