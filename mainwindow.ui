@@ -517,12 +517,12 @@
      <rect>
       <x>590</x>
       <y>270</y>
-      <width>58</width>
+      <width>81</width>
       <height>18</height>
      </rect>
     </property>
     <property name="text">
-     <string>Ошибки</string>
+     <string>Сообщения</string>
     </property>
    </widget>
    <widget class="QPushButton" name="pbClearLog">
@@ -535,7 +535,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>Очистить окно ошибок</string>
+     <string>Очистить окно сообщений</string>
     </property>
    </widget>
    <widget class="QGroupBox" name="currentExec">

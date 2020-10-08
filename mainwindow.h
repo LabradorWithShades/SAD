@@ -4,6 +4,7 @@
 #include <QMainWindow>
 #include <QVector>
 #include <QStack>
+#include <QMap>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -33,11 +34,13 @@ private slots:
     void on_pbClearLog_clicked();
 
 private:
+    void showRegs();
+    void updateRegs();
+    void execOP(QString op_str);
+
     Ui::MainWindow *ui;
 
     QVector<QString> m_codeLines;
-    void showRegs();
-    void updateRegs();
     uint16_t ax, bx, cx, dx,
              di, si,
              es, ds;
@@ -48,5 +51,10 @@ private:
 
     uint8_t* m_memory;
     QStack<uint16_t> m_stack;
+    QMap<QString, int> m_labels;
+
+private:
+    void mov_op(QString params);
+
 };
 #endif // MAINWINDOW_H

@@ -72,6 +72,25 @@ void MainWindow::updateRegs() {
 
 }
 
+void MainWindow::mov_op(QString params) {
+
+}
+
+void MainWindow::execOP(QString op_str) {
+    QString op = op_str;
+    op.truncate(op.indexOf(' '));
+    QString params = op_str.right(op_str.length() - op.length() - 1) + ' ';
+
+    if (op == "mov")
+        mov_op(params);
+    else if (op == "int") {
+        m_curExec = m_codeLines.size();
+    } else {
+        ui->teLog->appendPlainText("ОШИБКА! Нераспознання команда: \"" + op_str + "\"");
+        ui->teLog->appendPlainText("Если команда верна - это означает, что на данный момент она не поддерживается");
+    }
+}
+
 bool isComment(QString s) {
     QString ref = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
     for (auto i : s) {
@@ -88,30 +107,74 @@ void MainWindow::on_pbLoad_clicked()
     QString s = ui->teCode->toPlainText() + "\n";
     code_storage = s;
 
+    bool mode16bit = false;
+    bool org100 = false;
+
+    bool label_started = false;
+    QString label_name = "";
     while (true) {
         QString tmp = s;
         tmp.truncate(s.indexOf('\n'));
-        if (!isComment(tmp))
-            m_codeLines.append(tmp);
+        if (!isComment(tmp)) {
+            if (tmp.indexOf(':') != -1) {
+                label_name = tmp;
+                label_name.truncate(label_name.indexOf(':'));
+                tmp = tmp.right(tmp.length() - label_name.length() - 1);
+                label_started = true;
+                s = s.right(s.length() - label_name.length() - 1);
+                if (!isComment(tmp)) {
+                    m_codeLines.append(tmp);
+                    if (label_started) {
+                        m_labels.insert(label_name, m_codeLines.size() - 1);
+                        label_started = true;
+                    }
+                }
+            } else if (tmp.indexOf("use16") != -1) {
+                ui->teLog->appendPlainText("Использован 16-битный режим");
+                mode16bit = true;
+            } else if ((tmp.indexOf("org") != -1) && (tmp.indexOf("0x100") != -1)){
+                ui->teLog->appendPlainText("Смещение в 0x100 установлено");
+                org100 = true;
+            } else {
+                m_codeLines.append(tmp);
+                if (label_started) {
+                    m_labels.insert(label_name, m_codeLines.size() - 1);
+                    label_started = false;
+                    label_name = "";
+                }
+            }
+        }
         if (s.length() == tmp.length())
             break;
         s = s.right(s.length() - tmp.length() - 1);
     }
+
+    if (!mode16bit)
+        ui->teLog->appendPlainText("Внимание! Не задан 16-битный режим. Отладчик не поддерживает другие режимы. Возможны ошибки");
+    if (!org100)
+        ui->teLog->appendPlainText("Внимание! Не установлен отступ в 0x100 для COM-формата!");
 
     for (auto s : m_codeLines) {
         if (s.indexOf(';') != -1)
             s = s.left(s.indexOf(';'));
     }
 
+
+
     ui->teCode->clear();
     for (int i = 0; i < m_codeLines.size(); ++i) {
-        QString hex = QString::number(i, 16);
+        QString hex = QString::number(i + 256, 16);
         while (hex.length() != 4)
             hex = "0" + hex;
         QString addr = "[0x" + hex + "]";
         ui->teCode->appendPlainText(addr + " " + m_codeLines[i]);
     }
     m_curExec = 0;
+
+    if (m_codeLines.size() == 0) {
+        ui->teLog->appendPlainText("Ошибка! Код пуст!");
+        return;
+    }
 
     ui->pbLoad->setEnabled(false);
 
@@ -122,13 +185,24 @@ void MainWindow::on_pbLoad_clicked()
     ui->pbStop->setEnabled(true);
 
     ui->teCode->setReadOnly(true);
+
+    ui->teExecAddr->setPlainText(QString("0x0100"));
+    ui->teExecCommand->setPlainText(m_codeLines[0]);
 }
 
 void MainWindow::on_pbExec_clicked()
 {
+    execOP(m_codeLines[m_curExec]);
     ++m_curExec;
     showRegs();
-    if (m_curExec >= m_codeLines.size()) {
+    if (m_curExec < m_codeLines.size()) {
+        QString line_num = QString::number(m_curExec + 256, 16);
+        while (line_num.length() < 4)
+            line_num = "0" + line_num;
+        line_num = "0x" + line_num;
+        ui->teExecAddr->setPlainText(line_num);
+        ui->teExecCommand->setPlainText(m_codeLines[m_curExec]);
+    } else {
         ui->pbLoad->setEnabled(false);
 
         ui->pbDumpStack->setEnabled(true);
@@ -138,6 +212,9 @@ void MainWindow::on_pbExec_clicked()
         ui->pbStop->setEnabled(true);
 
         ui->teLog->appendPlainText("Программа завершена");
+
+        ui->teExecAddr->setPlainText("");
+        ui->teExecCommand->setPlainText("");
     }
 }
 
@@ -152,6 +229,7 @@ void MainWindow::on_pbRegUpd_clicked()
 {
 
 }
+
 
 void MainWindow::on_pbDumpStack_clicked()
 {
