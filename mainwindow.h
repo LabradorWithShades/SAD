@@ -5,6 +5,7 @@
 #include <QVector>
 #include <QStack>
 #include <QMap>
+#include <QPair>
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -36,11 +37,12 @@ private slots:
 private:
     void showRegs();
     void updateRegs();
+    uint32_t decode_addr(QString str, uint8_t& size);
     void execOP(QString op_str);
 
     Ui::MainWindow *ui;
 
-    QVector<QString> m_codeLines;
+    QVector<QPair<QString, uint32_t>> m_codeLines;
     uint16_t ax, bx, cx, dx,
              di, si,
              es, ds;

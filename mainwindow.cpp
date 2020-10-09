@@ -89,6 +89,25 @@ void MainWindow::err_op(QString msg) {
     m_curExec = m_codeLines.size();
 }
 
+uint32_t MainWindow::decode_addr(QString str, uint8_t& size) {
+    if (str.indexOf("word") != -1)
+        size = 2;
+    else
+        size = 1;
+    str = str.right(str.length() - str.indexOf('[') + 1);
+    str = str.left(str.indexOf(']'));
+
+    if (m_labels.find(str) != m_labels.cend())
+        return m_codeLines[*(m_labels.find(str))].second;
+
+    QString left_part = str.left(str.indexOf(':'));
+    QString right_part = str.right(str.length() - left_part.length() - 1);
+    uint32_t left = left_part.toUInt(nullptr, 16);
+    uint32_t right = right_part.toUInt(nullptr, 16);
+    left = left << 4;
+    return left + right;
+}
+
 void MainWindow::mov_op(QString params) {
     QString param1 = params;
     param1.truncate(param1.indexOf(','));
@@ -106,19 +125,50 @@ void MainWindow::mov_op(QString params) {
             auto reg_from = m_indRegs.find(param2);
             *(*reg_to) = *(*reg_from);
         } else if (param2.indexOf('[') != -1) {
-            param2 = param2.right(param2.length() - 1);
-            param2 = param2.left(param2.length() - 1);
-            uint32_t mem_addr = param2.toUInt();
-            if (mem_addr >= MEM_SIZE - 1) {
-                err_op("Address too big");
-                return;
-            }
-            *(*reg_to)  = m_memory[mem_addr] << 8;
-            *(*reg_to) &= m_memory[mem_addr + 1];
+            //TODO: mov ax, word[a:b]
+            uint8_t size = 0;
+            uint32_t addr = decode_addr(param2, size);
+            err_op("Данные операнды оператора MOV ещё не поддерживаются");
+            return;
         } else {
             uint16_t x = param2.toUInt(nullptr, 16);
             *(*reg_to) = x;
         }
+    } else if (m_segRegs.find(param1) != m_segRegs.cend()) {
+        auto reg_to = m_segRegs.find(param1);
+        if (m_genRegs.find(param2) != m_genRegs.cend()) {
+            auto reg_from = m_genRegs.find(param2);
+            *(*reg_to) = *(*reg_from);
+        } else if (m_segRegs.find(param2) != m_segRegs.cend()) {
+            auto reg_from = m_segRegs.find(param2);
+            *(*reg_to) = *(*reg_from);
+        } else if (m_indRegs.find(param2) != m_indRegs.cend()) {
+            auto reg_from = m_indRegs.find(param2);
+            *(*reg_to) = *(*reg_from);
+        } else
+            err_op("Недопустимые операнды оператора MOV");
+    } else if (m_indRegs.find(param1) != m_indRegs.cend()) {
+        auto reg_to = m_indRegs.find(param1);
+        if (m_genRegs.find(param2) != m_genRegs.cend()) {
+            auto reg_from = m_genRegs.find(param2);
+            *(*reg_to) = *(*reg_from);
+        } else if (m_segRegs.find(param2) != m_segRegs.cend()) {
+            auto reg_from = m_segRegs.find(param2);
+            *(*reg_to) = *(*reg_from);
+        } else if (m_indRegs.find(param2) != m_indRegs.cend()) {
+            auto reg_from = m_indRegs.find(param2);
+            *(*reg_to) = *(*reg_from);
+        } else {
+            uint8_t size = 0;
+            uint32_t addr = decode_addr(param2, size);
+            err_op("Недопустимые операнды оператора MOV");
+            return;
+        }
+    } else if (param2.indexOf('[') != -1) {
+        //TODO: mov word[a:b], ax
+        err_op("Данные операнды оператора MOV ещё не поддерживаются");
+    } else {
+        err_op("Недопустимые операнды оператора MOV");
     }
 }
 
@@ -191,6 +241,15 @@ void sanitize_str(QString& str) {
     clean_spaces(str);
 }
 
+void inc_num(QString str, uint32_t& line_num) {
+    if ((str.indexOf("DB") == -1) &&
+        (str.indexOf("DW") == -1))
+        line_num++;
+    else {
+        //TODO: Add db/dw memory counter;
+    }
+}
+
 void MainWindow::on_pbLoad_clicked()
 {
     QString s = ui->teCode->toPlainText() + "\n";
@@ -201,6 +260,7 @@ void MainWindow::on_pbLoad_clicked()
 
     bool label_started = false;
     QString label_name = "";
+    uint32_t line_num = 256;
     while (true) {
         QString tmp = s;
         tmp.truncate(s.indexOf('\n'));
@@ -212,7 +272,11 @@ void MainWindow::on_pbLoad_clicked()
                 label_started = true;
                 s = s.right(s.length() - label_name.length() - 1);
                 if (!isComment(tmp)) {
-                    m_codeLines.append(tmp);
+                    sanitize_str(tmp);
+                    if (tmp.indexOf(';') != -1)
+                        tmp = tmp.left(tmp.indexOf(';'));
+                    m_codeLines.append(QPair<QString, uint32_t>(tmp, line_num));
+                    inc_num(tmp, line_num);
                     if (label_started) {
                         m_labels.insert(label_name, m_codeLines.size() - 1);
                         label_started = true;
@@ -225,7 +289,11 @@ void MainWindow::on_pbLoad_clicked()
                 ui->teLog->appendPlainText("Смещение в 0x100 установлено");
                 org100 = true;
             } else {
-                m_codeLines.append(tmp);
+                sanitize_str(tmp);
+                if (tmp.indexOf(';') != -1)
+                    tmp = tmp.left(tmp.indexOf(';'));
+                m_codeLines.append(QPair<QString, uint32_t>(tmp, line_num));
+                inc_num(tmp, line_num);
                 if (label_started) {
                     m_labels.insert(label_name, m_codeLines.size() - 1);
                     label_started = false;
@@ -243,21 +311,13 @@ void MainWindow::on_pbLoad_clicked()
     if (!org100)
         ui->teLog->appendPlainText("Внимание! Не установлен отступ в 0x100 для COM-формата!");
 
-    for (auto& s : m_codeLines) {
-        sanitize_str(s);
-        if (s.indexOf(';') != -1)
-            s = s.left(s.indexOf(';'));
-    }
-
-
-
     ui->teCode->clear();
     for (int i = 0; i < m_codeLines.size(); ++i) {
-        QString hex = QString::number(i + 256, 16);
+        QString hex = QString::number(m_codeLines[i].second, 16);
         while (hex.length() != 4)
             hex = "0" + hex;
         QString addr = "[0x" + hex + "]";
-        ui->teCode->appendPlainText(addr + " " + m_codeLines[i]);
+        ui->teCode->appendPlainText(addr + " " + m_codeLines[i].first);
     }
     m_curExec = 0;
 
@@ -277,21 +337,21 @@ void MainWindow::on_pbLoad_clicked()
     ui->teCode->setReadOnly(true);
 
     ui->teExecAddr->setPlainText(QString("0x0100"));
-    ui->teExecCommand->setPlainText(m_codeLines[0]);
+    ui->teExecCommand->setPlainText(m_codeLines[0].first);
 }
 
 void MainWindow::on_pbExec_clicked()
 {
-    execOP(m_codeLines[m_curExec]);
+    execOP(m_codeLines[m_curExec].first);
     ++m_curExec;
     showRegs();
     if (m_curExec < m_codeLines.size()) {
-        QString line_num = QString::number(m_curExec + 256, 16);
+        QString line_num = QString::number(m_codeLines[m_curExec].second + 256, 16);
         while (line_num.length() < 4)
             line_num = "0" + line_num;
         line_num = "0x" + line_num;
         ui->teExecAddr->setPlainText(line_num);
-        ui->teExecCommand->setPlainText(m_codeLines[m_curExec]);
+        ui->teExecCommand->setPlainText(m_codeLines[m_curExec].first);
     } else {
         ui->pbLoad->setEnabled(false);
 
