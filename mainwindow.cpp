@@ -39,6 +39,15 @@ MainWindow::MainWindow(QWidget *parent)
     m_genRegs.insert("CX", &cx);
     m_genRegs.insert("DX", &dx);
 
+    m_genpartRegs.insert("AH", (uint8_t*)&ax + 1);
+    m_genpartRegs.insert("AL", (uint8_t*)&ax);
+    m_genpartRegs.insert("BH", (uint8_t*)&bx + 1);
+    m_genpartRegs.insert("BL", (uint8_t*)&bx);
+    m_genpartRegs.insert("CH", (uint8_t*)&cx + 1);
+    m_genpartRegs.insert("CL", (uint8_t*)&cx);
+    m_genpartRegs.insert("DH", (uint8_t*)&dx + 1);
+    m_genpartRegs.insert("DL", (uint8_t*)&dx);
+
     m_indRegs.insert("DI", &di);
     m_indRegs.insert("SI", &si);
 
@@ -102,6 +111,8 @@ uint32_t MainWindow::decode_addr(QString str, uint8_t& size) {
 
     QString left_part = str.left(str.indexOf(':'));
     QString right_part = str.right(str.length() - left_part.length() - 1);
+
+    //TODO add registers support (e. g. [DS:DI])
     uint32_t left = left_part.toUInt(nullptr, 16);
     uint32_t right = right_part.toUInt(nullptr, 16);
     left = left << 4;
@@ -124,12 +135,27 @@ void MainWindow::mov_op(QString params) {
         } else if (m_indRegs.find(param2) != m_indRegs.cend()) {
             auto reg_from = m_indRegs.find(param2);
             *(*reg_to) = *(*reg_from);
+        } else if (m_genpartRegs.find(param2) != m_genpartRegs.cend()) {
+            auto reg_from = m_genpartRegs.find(param2);
+            *(*reg_to) = *(*reg_from);
         } else if (param2.indexOf('[') != -1) {
-            //TODO: mov ax, word[a:b]
             uint8_t size = 0;
             uint32_t addr = decode_addr(param2, size);
-            err_op("Данные операнды оператора MOV ещё не поддерживаются");
-            return;
+            if (addr >= static_cast<uint32_t>(MEM_SIZE - size)) {
+                err_op("Операнд оператора MOV превышает допустимый предел");
+                return;
+            }
+            if (size > 2) {
+                err_op("Размеры операндов оператора mov несовместимы");
+                return;
+            } else if (size == 2) {
+                *(*reg_to) = *((uint16_t*)(&m_memory[addr]));
+            } else if (size == 1) {
+                *(*reg_to) = m_memory[addr];
+            } else {
+                err_op("Неизвестная ошибка в операторе MOV");
+                return;
+            }
         } else {
             uint16_t x = param2.toUInt(nullptr, 16);
             *(*reg_to) = x;
@@ -145,6 +171,9 @@ void MainWindow::mov_op(QString params) {
         } else if (m_indRegs.find(param2) != m_indRegs.cend()) {
             auto reg_from = m_indRegs.find(param2);
             *(*reg_to) = *(*reg_from);
+        } else if (m_genpartRegs.find(param2) != m_genpartRegs.cend()) {
+            auto reg_from = m_genpartRegs.find(param2);
+            *(*reg_to) = *(*reg_from);
         } else
             err_op("Недопустимые операнды оператора MOV");
     } else if (m_indRegs.find(param1) != m_indRegs.cend()) {
@@ -159,14 +188,72 @@ void MainWindow::mov_op(QString params) {
             auto reg_from = m_indRegs.find(param2);
             *(*reg_to) = *(*reg_from);
         } else {
-            uint8_t size = 0;
-            uint32_t addr = decode_addr(param2, size);
             err_op("Недопустимые операнды оператора MOV");
             return;
         }
-    } else if (param2.indexOf('[') != -1) {
-        //TODO: mov word[a:b], ax
-        err_op("Данные операнды оператора MOV ещё не поддерживаются");
+    } else if (m_genpartRegs.find(param1) != m_genpartRegs.cend()) {
+        auto reg_to = m_genpartRegs.find(param1);
+        if (m_genpartRegs.find(param2) != m_genpartRegs.cend()) {
+            auto reg_from = m_genpartRegs.find(param2);
+            *(*reg_to) = *(*reg_from);
+        } else if (param2.indexOf('[') != -1) {
+            uint8_t size = 0;
+            uint32_t addr = decode_addr(param2, size);
+            if (addr >= static_cast<uint32_t>(MEM_SIZE - size)) {
+                err_op("Операнд оператора MOV превышает допустимый предел");
+                return;
+            }
+            if (size != 1) {
+                err_op("Размеры операндов оператора mov несовместимы");
+                return;
+            }
+            *(*reg_to) = m_memory[addr];
+        } else {
+            uint8_t x = param2.toUInt(nullptr, 16);
+            *(*reg_to) = x;
+        }
+    } else if (param1.indexOf('[') != -1) {
+        uint8_t size = 0;
+        uint32_t addr = decode_addr(param2, size);
+        if (addr >= static_cast<uint32_t>(MEM_SIZE - size)) {
+            err_op("Операнд оператора MOV превышает допустимый предел");
+            return;
+        }
+        if (m_genRegs.find(param2) != m_genRegs.cend()) {
+            auto reg_from = m_genRegs.find(param2);
+            if (size != 2) {
+                err_op("Размеры операндов оператора mov несовместимы");
+                return;
+            }
+            m_memory[addr] = *(*reg_from) >> 8;
+            m_memory[addr + 1] = *(*reg_from) & 0xF;
+        } else if (m_segRegs.find(param2) != m_segRegs.cend()) {
+            auto reg_from = m_segRegs.find(param2);
+            if (size != 2) {
+                err_op("Размеры операндов оператора mov несовместимы");
+                return;
+            }
+            m_memory[addr] = *(*reg_from) >> 8;
+            m_memory[addr + 1] = *(*reg_from) & 0xF;
+        } else if (m_indRegs.find(param2) != m_indRegs.cend()) {
+            auto reg_from = m_indRegs.find(param2);
+            if (size != 2) {
+                err_op("Размеры операндов оператора mov несовместимы");
+                return;
+            }
+            m_memory[addr] = *(*reg_from) >> 8;
+            m_memory[addr + 1] = *(*reg_from) & 0xF;
+        } else if (m_genpartRegs.find(param2) != m_genpartRegs.cend()) {
+            auto reg_from = m_genpartRegs.find(param2);
+            if (size != 1) {
+                err_op("Размеры операндов оператора mov несовместимы");
+                return;
+            }
+            m_memory[addr] = *(*reg_from);
+        } else {
+            err_op("Недопустимые операнды оператора MOV");
+            return;
+        }
     } else {
         err_op("Недопустимые операнды оператора MOV");
     }

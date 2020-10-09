@@ -55,6 +55,7 @@ private:
     QStack<uint16_t> m_stack;
     QMap<QString, int> m_labels;
     QMap<QString, uint16_t*> m_genRegs;
+    QMap<QString, uint8_t*> m_genpartRegs;
     QMap<QString, uint16_t*> m_indRegs;
     QMap<QString, uint16_t*> m_segRegs;
 
