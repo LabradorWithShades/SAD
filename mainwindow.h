@@ -50,6 +50,7 @@ private:
              d, i, t;
     int m_curExec;
     QString code_storage;
+    int m_beforecall;
 
     uint8_t* m_memory;
     QStack<uint16_t> m_stack;
@@ -62,6 +63,10 @@ private:
 private:
     void err_op(QString msg);
     void mov_op(QString params);
+    void push_op(QString params);
+    void pop_op(QString params);
+    void call_op(QString params);
+    void ret_op();
 
 };
 #endif // MAINWINDOW_H

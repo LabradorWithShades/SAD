@@ -29,6 +29,7 @@ MainWindow::MainWindow(QWidget *parent)
     , i(0)
     , t(0)
     , m_curExec(0)
+    , m_beforecall(0)
 {
     ui->setupUi(this);
     m_memory = (uint8_t*)malloc(MEM_SIZE);
@@ -63,13 +64,13 @@ MainWindow::~MainWindow()
 
 void MainWindow::showRegs() {
     ui->teAH->setPlainText("0x" + QString::number(ax >> 8, 16));
-    ui->teAL->setPlainText("0x" + QString::number(ax & 0xF, 16));
+    ui->teAL->setPlainText("0x" + QString::number(ax & 0xFF, 16));
     ui->teBH->setPlainText("0x" + QString::number(bx >> 8, 16));
-    ui->teBL->setPlainText("0x" + QString::number(bx & 0xF, 16));
+    ui->teBL->setPlainText("0x" + QString::number(bx & 0xFF, 16));
     ui->teCH->setPlainText("0x" + QString::number(cx >> 8, 16));
-    ui->teCL->setPlainText("0x" + QString::number(cx & 0xF, 16));
+    ui->teCL->setPlainText("0x" + QString::number(cx & 0xFF, 16));
     ui->teDH->setPlainText("0x" + QString::number(dx >> 8, 16));
-    ui->teDL->setPlainText("0x" + QString::number(dx & 0xF, 16));
+    ui->teDL->setPlainText("0x" + QString::number(dx & 0xFF, 16));
 
     ui->teSI->setPlainText("0x" + QString::number(si, 16));
     ui->teDI->setPlainText("0x" + QString::number(di, 16));
@@ -112,9 +113,19 @@ uint32_t MainWindow::decode_addr(QString str, uint8_t& size) {
     QString left_part = str.left(str.indexOf(':'));
     QString right_part = str.right(str.length() - left_part.length() - 1);
 
-    //TODO add registers support (e. g. [DS:DI])
-    uint32_t left = left_part.toUInt(nullptr, 16);
-    uint32_t right = right_part.toUInt(nullptr, 16);
+    uint32_t left = 0;
+    uint32_t right = 0;
+
+    if (m_segRegs.find(left_part) != m_segRegs.cend())
+        left = *(m_segRegs.find(left_part).value());
+    else
+        left = left_part.toUInt(nullptr, 16);
+
+    if (m_segRegs.find(right_part) != m_segRegs.cend())
+        right = *(m_segRegs.find(right_part).value());
+    else
+        right = right_part.toUInt(nullptr, 16);
+
     left = left << 4;
     return left + right;
 }
@@ -259,13 +270,95 @@ void MainWindow::mov_op(QString params) {
     }
 }
 
+void MainWindow::push_op(QString params) {
+    while (params.at(0) == ' ')
+        params.remove(0, 1);
+    while (params.at(params.length() - 1) == ' ')
+        params.remove(params.length() - 1, 1);
+    if (m_genRegs.find(params) != m_genRegs.cend()) {
+        auto reg_from = m_genRegs.find(params);
+        uint16_t value = *(*reg_from);
+        m_stack.push(value);
+    } else if (m_segRegs.find(params) != m_segRegs.cend()) {
+        auto reg_from = m_segRegs.find(params);
+        uint16_t value = *(*reg_from);
+        m_stack.push(value);
+    } else if (m_indRegs.find(params) != m_indRegs.cend()) {
+        auto reg_from = m_indRegs.find(params);
+        uint16_t value = *(*reg_from);
+        m_stack.push(value);
+    } else
+        err_op("Недопустимые операнды оператора PUSH");
+}
+
+void MainWindow::pop_op(QString params) {
+    if (m_stack.empty()) {
+        err_op("Операция POP применена когда стек был пуст");
+        return;
+    }
+
+    while (params.at(0) == ' ')
+        params.remove(0, 1);
+    while (params.at(params.length() - 1) == ' ')
+        params.remove(params.length() - 1, 1);
+
+    if (m_genRegs.find(params) != m_genRegs.cend()) {
+        auto reg_to = m_genRegs.find(params);
+        *(*reg_to) = m_stack.pop();
+    } else if (m_segRegs.find(params) != m_segRegs.cend()) {
+        auto reg_to = m_segRegs.find(params);
+        *(*reg_to) = m_stack.pop();
+    } else if (m_indRegs.find(params) != m_indRegs.cend()) {
+        auto reg_to = m_indRegs.find(params);
+        *(*reg_to) = m_stack.pop();
+    } else
+        err_op("Недопустимые операнды оператора PUSH");
+}
+
+void MainWindow::call_op(QString params) {
+    while (params.at(0) == ' ')
+        params.remove(0, 1);
+    while (params.at(params.length() - 1) == ' ')
+        params.remove(params.length() - 1, 1);
+
+    int addr = 0;
+    if (m_labels.find(params) != m_labels.cend())
+        addr = m_labels.find(params).value();
+    else {
+        err_op("Ошибка вызова оператора call");
+        return;
+    }
+
+    if (addr < m_codeLines.size()) {
+        m_beforecall = m_curExec;//Becuse call_op increases it by 1
+        m_curExec = addr - 1;//Becuse call_op increases it by 1
+        return;
+    }
+
+    err_op("Ошибка вызова оператора call");
+}
+
+void MainWindow::ret_op() {
+    m_curExec = m_beforecall;
+}
+
 void MainWindow::execOP(QString op_str) {
+    op_str += " ";
+
     QString op = op_str;
     op.truncate(op.indexOf(' '));
-    QString params = op_str.right(op_str.length() - op.length() - 1) + ' ';
+    QString params = op_str.right(op_str.length() - op.length() - 1);
 
     if (op == "MOV")
         mov_op(params);
+    else if (op == "POP")
+        pop_op(params);
+    else if (op == "PUSH")
+        push_op(params);
+    else if (op == "CALL")
+        call_op(params);
+    else if (op == "RET")
+        ret_op();
     else if (op == "INT") {
         m_curExec = m_codeLines.size();
     } else {
@@ -365,6 +458,7 @@ void MainWindow::on_pbLoad_clicked()
                     m_codeLines.append(QPair<QString, uint32_t>(tmp, line_num));
                     inc_num(tmp, line_num);
                     if (label_started) {
+                        capitalize(label_name);
                         m_labels.insert(label_name, m_codeLines.size() - 1);
                         label_started = true;
                     }
@@ -382,6 +476,7 @@ void MainWindow::on_pbLoad_clicked()
                 m_codeLines.append(QPair<QString, uint32_t>(tmp, line_num));
                 inc_num(tmp, line_num);
                 if (label_started) {
+                    capitalize(label_name);
                     m_labels.insert(label_name, m_codeLines.size() - 1);
                     label_started = false;
                     label_name = "";
