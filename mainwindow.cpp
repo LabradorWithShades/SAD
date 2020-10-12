@@ -131,6 +131,10 @@ uint32_t MainWindow::decode_addr(QString str, uint8_t& size) {
 }
 
 void MainWindow::mov_op(QString params) {
+    while (params.at(0) == ' ')
+        params.remove(0, 1);
+    while (params.at(params.length() - 1) == ' ')
+        params.remove(params.length() - 1, 1);
     QString param1 = params;
     param1.truncate(param1.indexOf(','));
     QString param2 = params.right(params.length() - param1.length() - 1);
@@ -237,7 +241,7 @@ void MainWindow::mov_op(QString params) {
                 return;
             }
             m_memory[addr] = *(*reg_from) >> 8;
-            m_memory[addr + 1] = *(*reg_from) & 0xF;
+            m_memory[addr + 1] = *(*reg_from) & 0xFF;
         } else if (m_segRegs.find(param2) != m_segRegs.cend()) {
             auto reg_from = m_segRegs.find(param2);
             if (size != 2) {
@@ -245,7 +249,7 @@ void MainWindow::mov_op(QString params) {
                 return;
             }
             m_memory[addr] = *(*reg_from) >> 8;
-            m_memory[addr + 1] = *(*reg_from) & 0xF;
+            m_memory[addr + 1] = *(*reg_from) & 0xFF;
         } else if (m_indRegs.find(param2) != m_indRegs.cend()) {
             auto reg_from = m_indRegs.find(param2);
             if (size != 2) {
@@ -253,7 +257,7 @@ void MainWindow::mov_op(QString params) {
                 return;
             }
             m_memory[addr] = *(*reg_from) >> 8;
-            m_memory[addr + 1] = *(*reg_from) & 0xF;
+            m_memory[addr + 1] = *(*reg_from) & 0xFF;
         } else if (m_genpartRegs.find(param2) != m_genpartRegs.cend()) {
             auto reg_from = m_genpartRegs.find(param2);
             if (size != 1) {
@@ -273,8 +277,8 @@ void MainWindow::mov_op(QString params) {
 void MainWindow::push_op(QString params) {
     while (params.at(0) == ' ')
         params.remove(0, 1);
-    while (params.at(params.length() - 1) == ' ')
-        params.remove(params.length() - 1, 1);
+    params = params.left(params.indexOf(' '));
+
     if (m_genRegs.find(params) != m_genRegs.cend()) {
         auto reg_from = m_genRegs.find(params);
         uint16_t value = *(*reg_from);
@@ -299,8 +303,7 @@ void MainWindow::pop_op(QString params) {
 
     while (params.at(0) == ' ')
         params.remove(0, 1);
-    while (params.at(params.length() - 1) == ' ')
-        params.remove(params.length() - 1, 1);
+    params = params.left(params.indexOf(' '));
 
     if (m_genRegs.find(params) != m_genRegs.cend()) {
         auto reg_to = m_genRegs.find(params);
@@ -318,8 +321,7 @@ void MainWindow::pop_op(QString params) {
 void MainWindow::call_op(QString params) {
     while (params.at(0) == ' ')
         params.remove(0, 1);
-    while (params.at(params.length() - 1) == ' ')
-        params.remove(params.length() - 1, 1);
+    params = params.left(params.indexOf(' '));
 
     int addr = 0;
     if (m_labels.find(params) != m_labels.cend())
@@ -342,6 +344,180 @@ void MainWindow::ret_op() {
     m_curExec = m_beforecall;
 }
 
+void MainWindow::add_op(QString params) {
+    while (params.at(0) == ' ')
+        params.remove(0, 1);
+    while (params.at(params.length() - 1) == ' ')
+        params.remove(params.length() - 1, 1);
+    QString param1 = params;
+    param1.truncate(param1.indexOf(','));
+    QString param2 = params.right(params.length() - param1.length() - 1);
+
+    if (m_genRegs.find(param1) != m_genRegs.cend()) {
+        auto reg_to = m_genRegs.find(param1);
+        if (m_genRegs.find(param2) != m_genRegs.cend()) {
+            auto reg_from = m_genRegs.find(param2);
+            *(*reg_to) = *(*reg_from) + *(*reg_to);
+        } else if (m_segRegs.find(param2) != m_segRegs.cend()) {
+            auto reg_from = m_segRegs.find(param2);
+            *(*reg_to) = *(*reg_from) + *(*reg_to);
+        } else if (m_indRegs.find(param2) != m_indRegs.cend()) {
+            auto reg_from = m_indRegs.find(param2);
+            *(*reg_to) = *(*reg_from) + *(*reg_to);
+        } else if (m_genpartRegs.find(param2) != m_genpartRegs.cend()) {
+            err_op("Размеры операндов оператора ADD несовместимы");
+            return;
+        } else if (param2.indexOf('[') != -1) {
+            uint8_t size = 0;
+            uint32_t addr = decode_addr(param2, size);
+            if (addr >= static_cast<uint32_t>(MEM_SIZE - size)) {
+                err_op("Операнд оператора ADD превышает допустимый предел");
+                return;
+            }
+            if (size > 2) {
+                err_op("Размеры операндов оператора mov несовместимы");
+                return;
+            } else if (size == 2) {
+                *(*reg_to) = *(*reg_to) + *((uint16_t*)(&m_memory[addr]));
+            } else if (size == 1) {
+                *(*reg_to) = *(*reg_to) + m_memory[addr];
+            } else {
+                err_op("Неизвестная ошибка в операторе ADD");
+                return;
+            }
+        } else {
+            uint16_t x = param2.toUInt(nullptr, 16);
+            *(*reg_to) = *(*reg_to) + x;
+        }
+    } else if (m_segRegs.find(param1) != m_segRegs.cend()) {
+        auto reg_to = m_segRegs.find(param1);
+        if (m_genRegs.find(param2) != m_genRegs.cend()) {
+            auto reg_from = m_genRegs.find(param2);
+            *(*reg_to) = *(*reg_from) + *(*reg_to);
+        } else if (m_segRegs.find(param2) != m_segRegs.cend()) {
+            auto reg_from = m_segRegs.find(param2);
+            *(*reg_to) = *(*reg_from) + *(*reg_to);
+        } else if (m_indRegs.find(param2) != m_indRegs.cend()) {
+            auto reg_from = m_indRegs.find(param2);
+            *(*reg_to) = *(*reg_from) + *(*reg_to);
+        } else if (m_genpartRegs.find(param2) != m_genpartRegs.cend()) {
+            err_op("Размеры операндов оператора ADD несовместимы");
+            return;
+        } else
+            err_op("Недопустимые операнды оператора MOV");
+    } else if (m_indRegs.find(param1) != m_indRegs.cend()) {
+        auto reg_to = m_indRegs.find(param1);
+        if (m_genRegs.find(param2) != m_genRegs.cend()) {
+            auto reg_from = m_genRegs.find(param2);
+            *(*reg_to) = *(*reg_from) + *(*reg_to);
+        } else if (m_segRegs.find(param2) != m_segRegs.cend()) {
+            auto reg_from = m_segRegs.find(param2);
+            *(*reg_to) = *(*reg_from) + *(*reg_to);
+        } else if (m_indRegs.find(param2) != m_indRegs.cend()) {
+            auto reg_from = m_indRegs.find(param2);
+            *(*reg_to) = *(*reg_from) + *(*reg_to);
+        } else {
+            err_op("Недопустимые операнды оператора MOV");
+            return;
+        }
+    } else if (m_genpartRegs.find(param1) != m_genpartRegs.cend()) {
+        auto reg_to = m_genpartRegs.find(param1);
+        if (m_genpartRegs.find(param2) != m_genpartRegs.cend()) {
+            auto reg_from = m_genpartRegs.find(param2);
+            *(*reg_to) = *(*reg_from) + *(*reg_to);
+        } else if (param2.indexOf('[') != -1) {
+            uint8_t size = 0;
+            uint32_t addr = decode_addr(param2, size);
+            if (addr >= static_cast<uint32_t>(MEM_SIZE - size)) {
+                err_op("Операнд оператора ADD превышает допустимый предел");
+                return;
+            }
+            if (size != 1) {
+                err_op("Размеры операндов оператора ADD несовместимы");
+                return;
+            }
+            *(*reg_to) = *(*reg_to) + m_memory[addr];
+        } else {
+            uint8_t x = param2.toUInt(nullptr, 16);
+            *(*reg_to) = *(*reg_to) + x;
+        }
+    } else if (param1.indexOf('[') != -1) {
+        uint8_t size = 0;
+        uint32_t addr = decode_addr(param2, size);
+        if (addr >= static_cast<uint32_t>(MEM_SIZE - size)) {
+            err_op("Операнд оператора ADD превышает допустимый предел");
+            return;
+        }
+        if (m_genRegs.find(param2) != m_genRegs.cend()) {
+            auto reg_from = m_genRegs.find(param2);
+            if (size != 2) {
+                err_op("Размеры операндов оператора ADD несовместимы");
+                return;
+            }
+            m_memory[addr] = m_memory[addr] + (*(*reg_from) >> 8);
+            m_memory[addr + 1] = m_memory[addr + 1] + (*(*reg_from) & 0xFF);
+        } else if (m_segRegs.find(param2) != m_segRegs.cend()) {
+            auto reg_from = m_segRegs.find(param2);
+            if (size != 2) {
+                err_op("Размеры операндов оператора ADD несовместимы");
+                return;
+            }
+            m_memory[addr] = m_memory[addr] + (*(*reg_from) >> 8);
+            m_memory[addr + 1] = m_memory[addr + 1] + (*(*reg_from) & 0xFF);
+        } else if (m_indRegs.find(param2) != m_indRegs.cend()) {
+            auto reg_from = m_indRegs.find(param2);
+            if (size != 2) {
+                err_op("Размеры операндов оператора ADD несовместимы");
+                return;
+            }
+            m_memory[addr] = m_memory[addr] + (*(*reg_from) >> 8);
+            m_memory[addr + 1] = m_memory[addr + 1] + (*(*reg_from) & 0xFF);
+        } else if (m_genpartRegs.find(param2) != m_genpartRegs.cend()) {
+            auto reg_from = m_genpartRegs.find(param2);
+            if (size != 1) {
+                err_op("Размеры операндов оператора ADD несовместимы");
+                return;
+            }
+            m_memory[addr] = m_memory[addr] + *(*reg_from);
+        } else {
+            err_op("Недопустимые операнды оператора ADD");
+            return;
+        }
+    } else {
+        err_op("Недопустимые операнды оператора ADD");
+    }
+}
+
+void MainWindow::mul_op(QString params) {
+    while (params.at(0) == ' ')
+        params.remove(0, 1);
+    params = params.left(params.indexOf(' '));
+
+    if (m_genRegs.find(params) != m_genRegs.cend()) {
+        auto reg_src = m_genRegs.find(params);
+        uint32_t res = ax * *(*reg_src);
+        dx = (res >> 16);
+        ax = (res & 0xFFFF);
+    } else if (m_segRegs.find(params) != m_segRegs.cend()) {
+        auto reg_src = m_segRegs.find(params);
+        uint32_t res = ax * *(*reg_src);
+        dx = (res >> 16);
+        ax = (res & 0xFFFF);
+    } else if (m_indRegs.find(params) != m_indRegs.cend()) {
+        auto reg_src = m_indRegs.find(params);
+        uint32_t res = ax * *(*reg_src);
+        dx = (res >> 16);
+        ax = (res & 0xFFFF);
+    } else if (m_genpartRegs.find(params) != m_genpartRegs.cend()) {
+        auto reg_src = m_genpartRegs.find(params);
+        uint32_t res = (ax & 0xFF) * *(*reg_src);
+        ax = res;
+    } else {
+        err_op("Несовместимые операнды оператора MUL");
+        return;
+    }
+}
+
 void MainWindow::execOP(QString op_str) {
     op_str += " ";
 
@@ -359,6 +535,10 @@ void MainWindow::execOP(QString op_str) {
         call_op(params);
     else if (op == "RET")
         ret_op();
+    else if (op == "MUL")
+        mul_op(params);
+    else if (op == "ADD")
+        add_op(params);
     else if (op == "INT") {
         m_curExec = m_codeLines.size();
     } else {

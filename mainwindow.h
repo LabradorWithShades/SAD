@@ -67,6 +67,8 @@ private:
     void pop_op(QString params);
     void call_op(QString params);
     void ret_op();
+    void add_op(QString params);
+    void mul_op(QString params);
 
 };
 #endif // MAINWINDOW_H
